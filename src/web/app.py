@@ -35,7 +35,11 @@ from src.web.auth import RateLimiter, UserRegistry
 STATIC_DIR = Path(__file__).parent / "static"
 
 app = FastAPI(title="Dota 2 Draft Recommender")
-security = HTTPBasic()
+
+# auto_error=False обязателен: со значением по умолчанию FastAPI сам
+# отвечает 401 ещё до вызова require_user, и выключатель DRAFT_NO_AUTH
+# не срабатывает — запрос до нашего кода просто не доходит.
+security = HTTPBasic(auto_error=False)
 
 service: DraftService | None = None
 registry: UserRegistry | None = None
@@ -61,18 +65,23 @@ def get_registry() -> UserRegistry:
     return registry
 
 
-def require_user(credentials: HTTPBasicCredentials = Depends(security)) -> str:
+def require_user(
+    credentials: HTTPBasicCredentials | None = Depends(security),
+) -> str:
     """Проверка логина. Возвращает имя пользователя — оно же ключ рейт-лимита."""
     if AUTH_DISABLED:
         return "dev"
+    # WWW-Authenticate обязателен: без него браузер не покажет окно ввода
+    # пароля, а просто отрисует голую ошибку.
+    unauthorized = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Неверный логин или пароль",
+        headers={"WWW-Authenticate": "Basic"},
+    )
+    if credentials is None:
+        raise unauthorized
     if not get_registry().verify(credentials.username, credentials.password):
-        # WWW-Authenticate обязателен: без него браузер не покажет окно
-        # ввода пароля, а просто отрисует голую ошибку.
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Неверный логин или пароль",
-            headers={"WWW-Authenticate": "Basic"},
-        )
+        raise unauthorized
     return credentials.username
 
 

@@ -33,6 +33,27 @@
            padding:2px 9px; font-size:11px; color:var(--dim); }
   .spacer { flex:1; }
 
+  /* Крутилка на время похода в OpenDota. Запрос идёт секунды, и без неё
+     непонятно, думает сайт или уже всё. */
+  .spin { display:inline-block; width:9px; height:9px; border:2px solid var(--line);
+          border-top-color:var(--accent); border-radius:50%; margin-right:5px;
+          vertical-align:-1px; animation:sp .7s linear infinite; }
+  @keyframes sp { to { transform:rotate(360deg); } }
+
+  /* Полоса ответа под шапкой. Раньше причина отказа жила в title, то есть
+     показывалась только при наведении мышью — человек видел, что ничего не
+     изменилось, и не понимал почему. Теперь текст на виду. */
+  .note { display:none; margin-top:8px; padding:8px 11px; border-radius:var(--r);
+          font-size:12px; line-height:1.45; background:var(--panel);
+          border:1px solid var(--line); border-left-width:3px; }
+  .note.on { display:block; }
+  .note.ok   { border-left-color:var(--ally); }
+  .note.warn { border-left-color:var(--accent); }
+  .note.err  { border-left-color:var(--enemy); }
+  .note b { color:var(--text); }
+  .note .how { color:var(--dim); margin-top:4px; }
+  button:disabled { opacity:.5; cursor:default; }
+
   .board { display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap; }
   .side-block { display:flex; gap:8px; align-items:flex-start; }
   .side-label { font-size:10px; letter-spacing:.6px; text-transform:uppercase;
@@ -123,6 +144,8 @@
     <button id="side">Radiant</button>
     <button id="reset">Сброс</button>
   </div>
+
+  <div class="note" id="steam-note"></div>
 
   <div class="board">
     <div class="side-block">
@@ -227,23 +250,76 @@ async function boot() {
    Личная статистика приезжает отдельным запросом, а не вместе с каталогом:
    поход в OpenDota занимает секунды, и держать из-за него пустой экран
    незачем. Сетка героев рисуется сразу, цифры проявляются, когда придут. */
+/* Что писать под шапкой в каждом исходе. Ключ — статус с бэкенда.
+   Второй строкой идёт «что делать»: сам по себе отказ бесполезен, если
+   человек не понимает, чинить это ему или нет. */
+const NOTES = {
+  private: {
+    cls: "warn",
+    text: "История матчей закрыта — рекомендации считаются по чистой модели драфта.",
+    how: "В Dota 2: Настройки → Аккаунт → «Показывать публичные данные матчей» " +
+         "(Expose Public Match Data). OpenDota подхватит историю не мгновенно, " +
+         "так что вернись к профилю позже."
+  },
+  too_few_games: {
+    cls: "warn",
+    text: "Матчей в истории слишком мало, чтобы личная статистика что-то значила.",
+    how: "Нужно хотя бы полсотни игр. Пока работает чистая модель драфта — она " +
+         "и так учитывает синергию, контрпики и состав."
+  },
+  bad_id: {
+    cls: "err",
+    text: "Не похоже на Steam ID.",
+    how: "Нужны только цифры: steam32 вида 118356858 или steam64 вида 76561198078622586."
+  },
+  unavailable: {
+    cls: "err",
+    text: "OpenDota сейчас не отвечает.",
+    how: "Рекомендации работают без персонализации. Попробуй нажать «Профиль» ещё раз через минуту."
+  }
+};
+
+function showNote(cls, text, how) {
+  const n = el("steam-note");
+  n.className = "note on " + cls;
+  n.innerHTML = `<b>${text}</b>` + (how ? `<div class="how">${how}</div>` : "");
+}
+
+function hideNote() { el("steam-note").className = "note"; }
+
 async function loadProfile(steamId, refreshCache) {
   const st = el("steam-state");
-  st.textContent = "загружаю…"; st.title = "";
+  const btn = el("steam-go");
+
+  // Кнопку гасим на время запроса: иначе нетерпеливый человек нажмёт пять
+  // раз подряд и упрётся в рейт-лимит, который сам же и создал.
+  btn.disabled = true;
+  st.innerHTML = '<span class="spin"></span>загружаю';
+  st.style.borderColor = "var(--line)";
+  showNote("", "<span class=\"spin\"></span>Тяну историю матчей из OpenDota…",
+           "На больших аккаунтах это занимает несколько секунд.");
 
   let r;
   try {
-    r = await (await fetch("/api/profile", {
+    const resp = await fetch("/api/profile", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ steam_id: steamId, refresh: !!refreshCache })
-    })).json();
+    });
+    r = await resp.json();
   } catch (e) {
-    st.textContent = "нет связи"; st.title = "Сервер не ответил";
+    btn.disabled = false;
+    st.textContent = "нет связи";
+    showNote("err", "Сервер не ответил.", "Проверь соединение и попробуй ещё раз.");
     return;
+  } finally {
+    btn.disabled = false;
   }
 
   if (r.detail) {                       // 429 от рейт-лимита
-    st.textContent = "слишком часто"; st.title = r.detail;
+    st.textContent = "слишком часто";
+    showNote("warn", "Слишком много запросов профиля.",
+             "Лимит — десять в минуту на человека, чтобы не выбить общий лимит " +
+             "OpenDota на всех. Подожди минуту.");
     return;
   }
 
@@ -255,6 +331,10 @@ async function loadProfile(steamId, refreshCache) {
     localStorage.setItem("steam_id", steamId);
     st.textContent = `профиль: ${r.games} матчей`;
     st.style.borderColor = "var(--ally)";
+    const heroes = Object.keys(r.stats || {}).length;
+    showNote("ok", `Персонализация включена: ${r.games} матчей на ${heroes} героях.`,
+             "Личный winrate теперь влияет на порядок рекомендаций, а под портретами " +
+             "видно твою статистику. Чем меньше игр на герое, тем слабее поправка.");
     // Статистика приходит словарём hero_id -> {games, winrate}; раскладываем
     // её по каталогу, чтобы работали сортировки «по моему winrate» и фильтр
     // «только мои герои» — они читают поля прямо у героя.
@@ -267,6 +347,11 @@ async function loadProfile(steamId, refreshCache) {
     st.textContent = "без персонализации";
     st.style.borderColor = "var(--line)";
     HEROES.forEach(h => { h.my_games = 0; h.my_winrate = 0; });
+    // Запомненный steam-id чистим: если история закрыта, при следующем
+    // заходе не надо молча дёргать OpenDota тем же бесполезным запросом.
+    localStorage.removeItem("steam_id");
+    const n = NOTES[r.status] || NOTES.unavailable;
+    showNote(n.cls, n.text, n.how);
   }
   draw(); refresh();
 }
@@ -478,6 +563,7 @@ el("steam-go").onclick = () => {
     el("steam-state").textContent = "без персонализации";
     el("steam-state").style.borderColor = "var(--line)";
     HEROES.forEach(h => { h.my_games = 0; h.my_winrate = 0; });
+    hideNote();
     draw(); refresh();
     return;
   }
