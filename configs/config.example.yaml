@@ -1,0 +1,68 @@
+# Скопировать в config.yaml и заполнить
+
+opendota:
+  base_url: "https://api.opendota.com/api"
+  # ключ не обязателен для базового тарифа, но снимает часть лимитов
+  api_key: ""
+  # твой steam32 id (для персонализации/L2), опционально
+  player_account_id: null
+
+  # выгрузка публичных матчей с полными драфтами (нужна для L3 и для
+  # честной матрицы синергии в L1) — см. fetch_public_matches.py
+  public_matches:
+    target_matches: 50000
+    # Фильтр бракета: этим определяется популяция, на которой учится модель.
+    # Значение обязательно указать в разделе методологии работы.
+    #
+    # Проще всего задать свой MMR — бракет посчитается сам (медаль ± spread):
+    player_mmr: null           # например 4200
+    rank_spread_medals: 1      # 0 = строго своя медаль, 1 = своя ± одна
+    # Ручной вариант, используется если player_mmr не задан:
+    min_rank_tier: 60          # 60 = Ancient 0, 70 = Divine 0 (null = без фильтра)
+    max_rank_tier: null        # верхняя граница в том же формате
+    # 2 = Captains Mode, 22 = Ranked All Pick. Turbo (23) сознательно
+    # исключён: там другой баланс героев и темп игры.
+    game_modes: [2, 22]
+    sleep_sec: 1.0             # пауза между запросами, rate limit ~60/мин
+
+data:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  public_matches_file: "public_matches.jsonl"
+  # минимальный MMR-бракет матчей для обучения синергии (опционально)
+  min_rank_tier: 60   # ~ Divine и выше, см. документацию OpenDota constants
+
+model:
+  level: "L3"               # какой уровень использует бот: L0 | L1 | L2 | L3
+  synergy_min_games: 30     # мин. число совместных игр, чтобы пара считалась значимой
+  prior_weight: 30          # сила сжатия попарной статистики к базовому winrate
+  top_k_recommendations: 3
+
+  # веса линейной комбинации для L1/L2 (подбираются по ablation)
+  w_base: 1.0
+  w_synergy: 1.0
+  w_counter: 1.0
+  w_player: 0.5
+
+  l3:
+    model_file: "l3_lgbm.txt"
+    val_fraction: 0.2        # последние 20% матчей по времени -> валидация
+    max_matches: null        # ограничить выборку самыми свежими матчами
+    stages_per_pick: 1       # сколько стадий драфта сэмплировать на один пик
+    random_seed: 42
+    # гиперпараметры LightGBM
+    n_estimators: 800
+    learning_rate: 0.05
+    num_leaves: 63
+    min_child_samples: 200
+    early_stopping_rounds: 50
+    # надстройка персонализации поверх L3 (0 = чистый L3)
+    w_player: 0.0
+    # Сколько виртуальных игр по 50% подмешивается к личной статистике
+    # героя: примерно столько игр нужно, чтобы личный winrate получил
+    # половину веса. На сайте у каждого свой аккаунт и истории короткие,
+    # поэтому приор выше, чем нужен был бы одному игроку с 6000 матчей.
+    player_prior_games: 30
+
+  eval:
+    n_contexts: 1000         # сколько ситуаций драфта берём в ablation

@@ -1,0 +1,13 @@
+# Зависимости только для инференса (сайт на VPS).
+# Сбор данных и обучение живут в requirements.txt: там дополнительно
+# requests/tqdm (ETL из OpenDota), scikit-learn (метрики обучения) и pytest.
+#
+# scikit-learn сюда сознательно не входит: наш код импортирует его лениво,
+# внутри train_l3, а сам lightgbm работает без него (SKLEARN_INSTALLED).
+fastapi==0.1*
+uvicorn==0.*
+pandas==2.*
+numpy==1.*
+pyarrow==16.*
+pyyaml==6.*
+lightgbm==4.*

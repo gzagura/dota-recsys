@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dota 2 Draft Recommender</title>
+<style>
+  :root {
+    --bg:#0f1216; --panel:#171b22; --panel2:#1e232c; --line:#2a313b;
+    --text:#e8ecf3; --dim:#8f9bad; --accent:#d9a441;
+    --ally:#46c46e; --enemy:#e5534b;
+    --r:8px;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  button, input, select { font:inherit; }
+  button { background:var(--panel2); color:var(--text); border:1px solid var(--line);
+           padding:6px 11px; border-radius:6px; cursor:pointer; }
+  button:hover { border-color:#3d4756; }
+  button.on { background:var(--accent); border-color:var(--accent); color:#12151a; font-weight:600; }
+  input,select { background:var(--panel2); color:var(--text); border:1px solid var(--line);
+                 padding:8px 11px; border-radius:6px; }
+  input:focus { outline:none; border-color:var(--accent); }
+  .dim { color:var(--dim); }
+  .tiny { font-size:11px; }
+
+  /* ---------- шапка с доской драфта ---------- */
+  header { background:var(--panel); border-bottom:1px solid var(--line); padding:10px 16px; }
+  .titlebar { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+  .titlebar h1 { margin:0; font-size:15px; font-weight:600; }
+  .badge { background:var(--panel2); border:1px solid var(--line); border-radius:20px;
+           padding:2px 9px; font-size:11px; color:var(--dim); }
+  .spacer { flex:1; }
+
+  .board { display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap; }
+  .side-block { display:flex; gap:8px; align-items:flex-start; }
+  .side-label { font-size:10px; letter-spacing:.6px; text-transform:uppercase;
+                color:var(--dim); margin-bottom:4px; }
+  .slots { display:flex; gap:5px; }
+  .slot { width:64px; height:40px; border:1px dashed var(--line); border-radius:5px;
+          position:relative; overflow:hidden; cursor:pointer; display:grid;
+          place-items:center; color:#4c576a; font-size:11px; background:var(--panel2); }
+  .slot img { width:100%; height:100%; object-fit:cover; }
+  .slot.filled { border-style:solid; }
+  .slot.ally.filled  { border-color:var(--ally); }
+  .slot.enemy.filled { border-color:var(--enemy); }
+  .slot.me.filled    { border-color:var(--accent); }
+  .slot .x { position:absolute; top:0; right:0; width:15px; height:15px; display:none;
+             place-items:center; background:rgba(0,0,0,.8); font-size:10px; z-index:2; }
+  .slot:hover .x { display:grid; }
+  .slot.target { border-style:solid; border-color:var(--accent);
+                 box-shadow:0 0 0 2px rgba(217,164,65,.3); }
+  .slot.target::after { content:"▸"; position:absolute; left:3px; top:1px;
+                        color:var(--accent); font-size:11px; }
+  .vs { align-self:center; color:var(--dim); font-size:12px; padding-top:14px; }
+
+  /* ---------- основная сетка ---------- */
+  /* Рекомендации — в левой колонке: это главное, ради чего открывают
+     страницу, и справа они терялись боковым зрением. */
+  main { display:grid; grid-template-columns:340px 1fr; gap:14px; padding:14px 16px 40px; }
+  @media (max-width:940px){ main { grid-template-columns:1fr; } }
+
+  .toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
+  .chips { display:flex; gap:4px; flex-wrap:wrap; }
+  .chip { background:var(--panel2); border:1px solid var(--line); border-radius:20px;
+          padding:3px 10px; font-size:12px; cursor:pointer; color:var(--dim); }
+  .chip.on { background:var(--accent); border-color:var(--accent); color:#12151a; font-weight:600; }
+
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(78px,1fr)); gap:6px; }
+  .hero { position:relative; border:2px solid transparent; border-radius:5px;
+          overflow:hidden; cursor:pointer; background:var(--panel); }
+  .hero img { width:100%; display:block; aspect-ratio:16/9; object-fit:cover; }
+  .hero .nm { font-size:10px; padding:3px 4px; color:var(--dim); white-space:nowrap;
+              overflow:hidden; text-overflow:ellipsis; }
+  .hero .pl { position:absolute; top:2px; right:2px; font-size:9px; padding:1px 4px;
+              border-radius:3px; background:rgba(0,0,0,.72); }
+  .hero .pl.good { color:#7ee08f; } .hero .pl.bad { color:#f08a84; }
+  .hero:hover { border-color:#4d5768; }
+  .hero.kb { border-color:var(--accent); }      /* попадёт по Enter */
+  .hero.taken { opacity:.22; pointer-events:none; }
+
+  /* ---------- правая колонка ---------- */
+  aside { position:sticky; top:12px; align-self:start; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:var(--r);
+           padding:12px; margin-bottom:12px; }
+  .panel h2 { margin:0 0 9px; font-size:11px; letter-spacing:.6px; text-transform:uppercase;
+              color:var(--dim); font-weight:600; }
+  .pw-row { display:flex; align-items:baseline; gap:8px; }
+  .pw { font-size:30px; font-weight:700; line-height:1; }
+  .bar { height:7px; background:var(--panel2); border-radius:4px; margin:9px 0 4px;
+         position:relative; overflow:hidden; }
+  .bar i { position:absolute; inset:0 auto 0 0; display:block; border-radius:4px; }
+  .bar u { position:absolute; left:50%; top:-2px; bottom:-2px; width:1px;
+           background:var(--dim); opacity:.6; }
+
+  .rec { display:flex; gap:9px; padding:8px 0; border-bottom:1px solid var(--line); }
+  .rec:last-child { border-bottom:0; }
+  .rec img { width:58px; height:33px; object-fit:cover; border-radius:4px; flex:none; }
+  .rec .b { flex:1; min-width:0; }
+  .rec .t { display:flex; justify-content:space-between; gap:6px; align-items:baseline; }
+  .rec .nm { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .rec .p { font-variant-numeric:tabular-nums; }
+  .rec .why { font-size:11px; color:var(--dim); margin-top:1px; }
+  .rec .act { display:flex; gap:4px; margin-top:4px; }
+  .rec .act button { padding:2px 8px; font-size:11px; }
+  ul.tac { margin:4px 0 0; padding-left:16px; }
+  ul.tac li { margin-bottom:4px; }
+  kbd { background:var(--panel2); border:1px solid var(--line); border-bottom-width:2px;
+        border-radius:4px; padding:0 5px; font-size:11px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="titlebar">
+    <h1>Dota 2 Draft Recommender</h1>
+    <span class="badge" id="lvl">…</span>
+    <span class="spacer"></span>
+    <input id="steam" placeholder="steam id" style="width:150px" title="Steam32 (account_id) или Steam64 — распознаю оба">
+    <button id="steam-go">Профиль</button>
+    <span class="badge" id="steam-state" title="">без персонализации</span>
+    <button id="side">Radiant</button>
+    <button id="reset">Сброс</button>
+  </div>
+
+  <div class="board">
+    <div class="side-block">
+      <div>
+        <div class="side-label" style="color:var(--accent)">Я играю</div>
+        <div class="slots" id="s-me"></div>
+      </div>
+      <div>
+        <div class="side-label" style="color:var(--ally)">Союзники</div>
+        <div class="slots" id="s-ally"></div>
+      </div>
+    </div>
+    <div class="vs">против</div>
+    <div>
+      <div class="side-label" style="color:var(--enemy)">Враги</div>
+      <div class="slots" id="s-enemy"></div>
+    </div>
+  </div>
+  <div class="tiny dim" style="margin-top:7px">
+    Клик по слоту — ввод пойдёт туда. Затем печатай имя и <kbd>Enter</kbd>,
+    либо кликни портрет. <kbd>Esc</kbd> — снять прицел, <kbd>✕</kbd> на слоте — убрать героя.
+  </div>
+</header>
+
+<main>
+  <aside>
+    <div class="panel">
+      <h2>Кого брать</h2>
+      <div id="recs"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Вероятность победы</h2>
+      <div class="pw-row"><span class="pw" id="pw">—</span><span class="tiny dim" id="pw-sub"></span></div>
+      <div class="bar"><i id="pw-bar" style="width:0"></i><u></u></div>
+      <div class="tiny dim" id="pw-note">Укажи своего героя — тогда посчитаю.</div>
+    </div>
+
+    <div class="panel" id="tac-panel" style="display:none">
+      <h2>На что смотреть</h2>
+      <div id="focus" style="display:none"></div>
+      <ul class="tac" id="tac"></ul>
+      <div class="tiny dim" id="tac-note"></div>
+    </div>
+  </aside>
+
+  <div>
+    <div class="toolbar">
+      <input id="q" placeholder="поиск: crystal, кристалка, квопа, сф…" style="min-width:250px">
+      <select id="sort">
+        <option value="name">по алфавиту</option>
+        <option value="mywr">по моему winrate</option>
+        <option value="mygames">по моим играм</option>
+      </select>
+      <label class="tiny dim"><input type="checkbox" id="onlymine"> только мои герои</label>
+      <span class="spacer"></span>
+      <span class="tiny dim" id="count"></span>
+    </div>
+    <div class="chips" id="roles" style="margin-bottom:10px"></div>
+    <div class="grid" id="grid"></div>
+  </div>
+</main>
+
+<script>
+let HEROES = [], BY_ID = {}, MAX_A = 4, MAX_E = 5;
+const S = { me:[null], ally:[], enemy:[], radiant:true, role:"", target:{kind:"enemy",i:0},
+            steam:"", personalized:false };
+const el = id => document.getElementById(id);
+const fmt = v => (v >= 0 ? "+" : "") + v.toFixed(3);
+const pct = v => Math.round(v * 100) + "%";
+
+async function boot() {
+  const d = await (await fetch("/api/heroes")).json();
+  HEROES = d.heroes; MAX_A = d.max_allies; MAX_E = d.max_enemies;
+  S.ally = Array(MAX_A).fill(null);
+  S.enemy = Array(MAX_E).fill(null);
+  HEROES.forEach(h => BY_ID[h.hero_id] = h);
+  el("lvl").textContent = "модель " + d.level;
+
+  const box = el("roles");
+  [["", "все роли"], ...d.roles.map(r => [r, r])].forEach(([v, label]) => {
+    const c = document.createElement("span");
+    c.className = "chip" + (v === "" ? " on" : "");
+    c.textContent = label;
+    c.onclick = () => {
+      S.role = v;
+      [...box.children].forEach(x => x.classList.toggle("on", x === c));
+      refresh();
+    };
+    box.appendChild(c);
+  });
+
+  // Steam id помним между заходами: вводить его каждый раз бессмысленно,
+  // аккаунт у человека один. Лежит только в браузере — на сервере сессий нет.
+  const saved = localStorage.getItem("steam_id") || "";
+  if (saved) { el("steam").value = saved; loadProfile(saved, false); }
+
+  draw(); refresh();
+}
+
+/* ---------- профиль игрока ----------
+   Личная статистика приезжает отдельным запросом, а не вместе с каталогом:
+   поход в OpenDota занимает секунды, и держать из-за него пустой экран
+   незачем. Сетка героев рисуется сразу, цифры проявляются, когда придут. */
+async function loadProfile(steamId, refreshCache) {
+  const st = el("steam-state");
+  st.textContent = "загружаю…"; st.title = "";
+
+  let r;
+  try {
+    r = await (await fetch("/api/profile", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ steam_id: steamId, refresh: !!refreshCache })
+    })).json();
+  } catch (e) {
+    st.textContent = "нет связи"; st.title = "Сервер не ответил";
+    return;
+  }
+
+  if (r.detail) {                       // 429 от рейт-лимита
+    st.textContent = "слишком часто"; st.title = r.detail;
+    return;
+  }
+
+  S.personalized = !!r.personalized;
+  S.steam = S.personalized ? steamId : "";
+  st.title = r.message || "";
+
+  if (S.personalized) {
+    localStorage.setItem("steam_id", steamId);
+    st.textContent = `профиль: ${r.games} матчей`;
+    st.style.borderColor = "var(--ally)";
+    // Статистика приходит словарём hero_id -> {games, winrate}; раскладываем
+    // её по каталогу, чтобы работали сортировки «по моему winrate» и фильтр
+    // «только мои герои» — они читают поля прямо у героя.
+    HEROES.forEach(h => { h.my_games = 0; h.my_winrate = 0; });
+    Object.entries(r.stats || {}).forEach(([hid, v]) => {
+      const h = BY_ID[+hid];
+      if (h) { h.my_games = v.games; h.my_winrate = v.winrate; }
+    });
+  } else {
+    st.textContent = "без персонализации";
+    st.style.borderColor = "var(--line)";
+    HEROES.forEach(h => { h.my_games = 0; h.my_winrate = 0; });
+  }
+  draw(); refresh();
+}
+
+/* ---------- слоты ---------- */
+const taken = () => new Set([...S.me, ...S.ally, ...S.enemy].filter(x => x !== null));
+
+function drawSlots() {
+  const mk = (host, kind, arr) => {
+    host.innerHTML = "";
+    arr.forEach((id, i) => {
+      const s = document.createElement("div");
+      const isTarget = S.target && S.target.kind === kind && S.target.i === i;
+      s.className = `slot ${kind}` + (id !== null ? " filled" : "") + (isTarget ? " target" : "");
+      if (id !== null) {
+        s.innerHTML = `<img src="${BY_ID[id].image}" title="${BY_ID[id].name}">
+                       <div class="x" title="убрать">✕</div>`;
+        s.querySelector(".x").onclick = e => { e.stopPropagation(); arr[i] = null; draw(); refresh(); };
+      } else {
+        s.textContent = kind === "me" ? "я" : i + 1;
+      }
+      s.onclick = () => { S.target = { kind, i }; draw(); el("q").focus(); };
+      host.appendChild(s);
+    });
+  };
+  mk(el("s-me"), "me", S.me);
+  mk(el("s-ally"), "ally", S.ally);
+  mk(el("s-enemy"), "enemy", S.enemy);
+}
+
+/* Кладём героя в прицеленный слот; если прицела нет — в первый свободный
+   у врагов, потому что чаще всего вводят именно вражеские пики. */
+function place(id) {
+  let t = S.target;
+  if (!t) {
+    const i = S.enemy.indexOf(null);
+    if (i < 0) return;
+    t = { kind: "enemy", i };
+  }
+  const arr = S[t.kind];
+  arr[t.i] = id;
+  const next = arr.indexOf(null);          // сам переходим к следующему пустому
+  S.target = next >= 0 ? { kind: t.kind, i: next } : null;
+  el("q").value = "";
+  draw(); refresh();
+}
+
+/* ---------- сетка героев ---------- */
+/* Ввод сравнивается и с английским именем, и с русскими названиями и
+   сленгом («кристалка», «квопа», «сф») — словарём из src/hero_aliases.py. */
+const norm = s => s.trim().toLowerCase().replace(/[\s'-]/g, "");
+function matches(h, q) {
+  if (h.name.toLowerCase().includes(q)) return true;
+  const k = norm(q);
+  return norm(h.name).includes(k) || (h.aliases || []).some(a => norm(a).includes(k));
+}
+
+function rank(h, q) {
+  const k = norm(q), n = norm(h.name), al = (h.aliases || []).map(norm);
+  if (n === k || al.includes(k)) return 0;
+  if (n.startsWith(k) || al.some(a => a.startsWith(k))) return 1;
+  return 2;
+}
+
+function visibleHeroes() {
+  const q = el("q").value.trim().toLowerCase();
+  const t = taken();
+  let list = HEROES.filter(h => !t.has(h.hero_id));
+  if (q) list = list.filter(h => matches(h, q));
+  if (el("onlymine").checked) list = list.filter(h => h.my_games > 0);
+  const by = el("sort").value;
+  if (by === "mywr") list.sort((a, b) => b.my_winrate - a.my_winrate || b.my_games - a.my_games);
+  else if (by === "mygames") list.sort((a, b) => b.my_games - a.my_games);
+  else list.sort((a, b) => a.name.localeCompare(b.name));
+  // При поиске точное совпадение поднимается наверх: по Enter берётся
+  // первый в списке, и «сф» должен давать Shadow Fiend, а не героя,
+  // у которого эти буквы встретились где-то в середине имени.
+  if (q) list.sort((a, b) => rank(a, q) - rank(b, q));
+  return list;
+}
+
+function draw() {
+  drawSlots();
+  const list = visibleHeroes();
+  el("count").textContent = list.length + " героев";
+  const g = el("grid"); g.innerHTML = "";
+  list.forEach((h, i) => {
+    const d = document.createElement("div");
+    // Первый в отфильтрованном списке подсвечен: именно он встанет по Enter.
+    d.className = "hero" + (i === 0 && el("q").value.trim() ? " kb" : "");
+    const cls = h.my_winrate >= 0.5 ? "good" : "bad";
+    const pl = h.my_games ? `<span class="pl ${cls}">${pct(h.my_winrate)}·${h.my_games}</span>` : "";
+    d.innerHTML = `<img loading="lazy" src="${h.image}" alt="">${pl}<div class="nm">${h.name}</div>`;
+    d.onclick = () => place(h.hero_id);
+    g.appendChild(d);
+  });
+}
+
+/* ---------- запрос к модели ---------- */
+let pending = null;
+async function refresh() {
+  const body = {
+    allies: S.ally.filter(x => x !== null),
+    enemies: S.enemy.filter(x => x !== null),
+    my_hero: S.me[0],
+    is_radiant: S.radiant,
+    role: S.role || null,
+    steam_id: S.steam || null
+  };
+  const token = {}; pending = token;
+  const r = await (await fetch("/api/recommend", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  })).json();
+  if (pending !== token) return;            // пришёл ответ на устаревший запрос
+
+  if (r.p_win === null) {
+    el("pw").textContent = "—"; el("pw-sub").textContent = "";
+    el("pw-bar").style.width = "0";
+    el("pw-note").textContent = "Укажи своего героя — тогда посчитаю.";
+  } else {
+    const p = r.p_win;
+    el("pw").textContent = (p * 100).toFixed(1) + "%";
+    el("pw").style.color = p >= .5 ? "var(--ally)" : "var(--enemy)";
+    el("pw-sub").textContent = p >= .5 ? "перевес у вас" : "перевес у них";
+    const bar = el("pw-bar");
+    bar.style.width = Math.min(100, Math.max(0, p * 100)) + "%";
+    bar.style.background = p >= .5 ? "var(--ally)" : "var(--enemy)";
+    el("pw-note").textContent =
+      `Оценка по ${r.team_size} своим и ${r.enemy_size} вражеским.` +
+      (r.complete ? "" : " Драфт неполон — прогноз грубее.") +
+      " Модель угадывает исход в 55% случаев против 50% у монетки.";
+  }
+
+  const box = el("recs"); box.innerHTML = "";
+  if (!r.recommendations.length) {
+    box.innerHTML = '<div class="tiny dim">Под текущий фильтр кандидатов нет.</div>';
+  }
+  r.recommendations.forEach(x => {
+    const bits = [];
+    if (x.synergy !== null) bits.push("синергия " + fmt(x.synergy));
+    if (x.counter !== null) bits.push("контра " + fmt(x.counter));
+    // «не играл» имеет смысл, только когда профиль подключён: без него ноль
+    // игр стоит у всех героев подряд и означает лишь отсутствие данных.
+    if (S.personalized) {
+      bits.push(x.my_games ? `ты ${pct(x.my_winrate)} на ${x.my_games}` : "не играл");
+    }
+    const p = x.p_win === null ? x.score.toFixed(3) : (x.p_win * 100).toFixed(1) + "%";
+    const bonus = x.player_bonus ? ` <span class="tiny dim">${fmt(x.player_bonus)}</span>` : "";
+    const d = document.createElement("div");
+    d.className = "rec";
+    d.innerHTML = `<img src="${BY_ID[x.hero_id].image}" alt="">
+      <div class="b">
+        <div class="t"><span class="nm">${x.name}</span><span class="p">${p}${bonus}</span></div>
+        <div class="why">${bits.join(" · ")}</div>
+        <div class="act">
+          <button data-k="me">беру себе</button>
+          <button data-k="ally">в свои</button>
+          <button data-k="enemy">во враги</button>
+        </div>
+      </div>`;
+    d.querySelectorAll("button").forEach(b => b.onclick = () => {
+      const k = b.dataset.k, arr = S[k];
+      const i = arr.indexOf(null);
+      if (k === "me") { S.me[0] = x.hero_id; }
+      else if (i >= 0) arr[i] = x.hero_id; else return;
+      draw(); refresh();
+    });
+    box.appendChild(d);
+  });
+
+  // Приоритетная цель: враг, против которого у нашего состава худшая
+  // средняя контр-дельта, то есть тот, на кого драфт не нашёл ответа.
+  const f = el("focus");
+  if (r.threats && r.threats.length >= 2) {
+    const worst = r.threats[0];
+    f.style.display = "";
+    f.innerHTML =
+      `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+         <img src="${BY_ID[worst.hero_id].image}" style="width:58px;height:33px;
+              object-fit:cover;border-radius:4px;border:2px solid var(--enemy)">
+         <div><div><b>Фокус: ${worst.name}</b></div>
+           <div class="tiny dim">ваш состав тянет его хуже всех
+             (${fmt(worst.advantage)})</div></div>
+       </div>`;
+  } else f.style.display = "none";
+
+  const show = r.tactics.length || (r.threats && r.threats.length >= 2);
+  el("tac-panel").style.display = show ? "" : "none";
+  el("tac").innerHTML = r.tactics.map(t => `<li>${t}</li>`).join("");
+  el("tac-note").textContent = show
+    ? "Фокус — из попарной статистики контрпиков; подсказки ниже — эвристика по тегам ролей. Модель этому не обучалась."
+    : "";
+}
+
+/* ---------- управление ---------- */
+el("q").oninput = draw;
+el("q").onkeydown = e => {
+  if (e.key === "Enter") { const l = visibleHeroes(); if (l.length) place(l[0].hero_id); }
+  if (e.key === "Escape") { el("q").value = ""; S.target = null; draw(); }
+};
+el("sort").onchange = draw;
+el("onlymine").onchange = draw;
+el("steam-go").onclick = () => {
+  const v = el("steam").value.trim();
+  if (!v) {                                  // пустое поле = выключить персонализацию
+    localStorage.removeItem("steam_id");
+    S.steam = ""; S.personalized = false;
+    el("steam-state").textContent = "без персонализации";
+    el("steam-state").style.borderColor = "var(--line)";
+    HEROES.forEach(h => { h.my_games = 0; h.my_winrate = 0; });
+    draw(); refresh();
+    return;
+  }
+  // Повторный клик по уже загруженному профилю обновляет его принудительно:
+  // иначе свежие матчи не появятся до истечения суточного кеша.
+  loadProfile(v, S.personalized && v === S.steam);
+};
+el("steam").onkeydown = e => { if (e.key === "Enter") el("steam-go").click(); };
+el("side").onclick = e => {
+  S.radiant = !S.radiant;
+  e.target.textContent = S.radiant ? "Radiant" : "Dire";
+  refresh();
+};
+el("reset").onclick = () => {
+  S.me = [null]; S.ally = Array(MAX_A).fill(null); S.enemy = Array(MAX_E).fill(null);
+  S.target = { kind: "enemy", i: 0 }; el("q").value = "";
+  draw(); refresh();
+};
+document.addEventListener("keydown", e => {
+  if (e.key === "/" && document.activeElement !== el("q")) { e.preventDefault(); el("q").focus(); }
+});
+
+boot();
+</script>
+</body>
+</html>

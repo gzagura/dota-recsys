@@ -1,0 +1,36 @@
+# systemd-юнит сайта. Ставится в /etc/systemd/system/dota-draft.service
+#
+# WorkingDirectory обязателен и должен указывать на корень проекта: пути в
+# конфиге относительные ("data/processed", "configs/config.yaml"), и из
+# другого каталога сервис не найдёт ни модель, ни пользователей.
+
+[Unit]
+Description=Dota 2 Draft Recommender
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=draft
+Group=draft
+WorkingDirectory=/opt/dota-recsys
+ExecStart=/opt/dota-recsys/.venv/bin/python -m src.web.app
+Restart=always
+RestartSec=5
+
+# LightGBM по умолчанию распараллеливает предсказание на все ядра. На
+# запросе в 7 мс это не ускоряет, а мешает: потоки конкурируют между
+# одновременными запросами. Одно ядро на предсказание, параллелизм —
+# по запросам.
+Environment=OMP_NUM_THREADS=1
+
+# Сервис читает модель и пишет только в кеш профилей, больше ему ничего
+# не нужно — остальная файловая система для него только на чтение.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/dota-recsys/data/profiles
+
+[Install]
+WantedBy=multi-user.target

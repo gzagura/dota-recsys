@@ -1,0 +1,19 @@
+# Данные и артефакты модели: обучающий датасет весит 24 МБ, а всё
+# остальное воспроизводится пайплайном. На сервер едет через
+# deploy/sync-artifacts.sh.
+data/raw/*
+data/processed/*
+data/profiles/*
+!data/*/.gitkeep
+
+# Секреты: ключ OpenDota, хеши паролей и выданные пароли открытым текстом.
+configs/config.yaml
+configs/users.json
+configs/users.txt
+
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+.env
+*.db
