@@ -36,8 +36,8 @@ sudo -u draft /opt/dota-recsys/.venv/bin/pip install -r /opt/dota-recsys/require
 ```
 
 `requirements-serve.txt`, а не `requirements.txt`: сбор данных и обучение
-на сервере не нужны, а вместе с ними отпадают requests, tqdm, pytest и
-scikit-learn.
+на сервере не нужны, а вместе с ними отпадают tqdm, pytest и scikit-learn.
+requests остаётся — им сайт ходит в OpenDota за профилем игрока.
 
 ### 3. Артефакты и секреты
 

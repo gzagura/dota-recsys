@@ -1,6 +1,9 @@
 # Зависимости только для инференса (сайт на VPS).
 # Сбор данных и обучение живут в requirements.txt: там дополнительно
-# requests/tqdm (ETL из OpenDota), scikit-learn (метрики обучения) и pytest.
+# tqdm (прогресс в ETL), scikit-learn (метрики обучения) и pytest.
+#
+# requests нужен и здесь: src/profiles.py тянет им историю игрока из
+# OpenDota прямо во время работы сайта, это не офлайновый ETL.
 #
 # scikit-learn сюда сознательно не входит: наш код импортирует его лениво,
 # внутри train_l3, а сам lightgbm работает без него (SKLEARN_INSTALLED).
@@ -15,3 +18,4 @@ numpy>=1.26,<3.0
 pyarrow>=16
 pyyaml>=6,<7
 lightgbm>=4.5,<5
+requests>=2.31,<3.0
