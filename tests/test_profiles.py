@@ -191,3 +191,41 @@ def test_анонимный_профиль_ничего_не_меняет():
     assert not anon.personalized
     assert anon.delta == {}
     assert anon.stats == {}
+
+
+# ------------------------------------------------- время жизни кеша отказов
+
+
+def test_отказ_не_залипает_на_сутки(tmp_path, monkeypatch):
+    """Человек включил публикацию матчей и вернулся через десять минут.
+
+    Живой случай: пользователь получил «история закрыта», пошёл включать
+    галку в Доте, данные в OpenDota появились — а сайт сутки показывал бы
+    ему прежний отказ и выглядел сломанным.
+    """
+    calls = []
+
+    def counting_get(url, params=None, timeout=None):
+        calls.append(url)
+        return FakeResponse([])  # закрытая история
+
+    monkeypatch.setattr("src.profiles.requests.get", counting_get)
+    store = ProfileStore(cache_dir=tmp_path, negative_ttl_sec=0)
+    assert store.get(42).status == "private"
+    store.get(42)
+    assert len(calls) == 2, "отказ должен перепроверяться, а не браться из кеша"
+
+
+def test_удачный_профиль_кешируется_надолго(tmp_path, monkeypatch):
+    """А вот успех перепроверять незачем — лимит OpenDota общий на всех."""
+    calls = []
+
+    def counting_get(url, params=None, timeout=None):
+        calls.append(url)
+        return FakeResponse(make_matches(MIN_GAMES + 1))
+
+    monkeypatch.setattr("src.profiles.requests.get", counting_get)
+    store = ProfileStore(cache_dir=tmp_path, negative_ttl_sec=0)
+    assert store.get(42).status == "ok"
+    store.get(42)
+    assert len(calls) == 1

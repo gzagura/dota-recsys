@@ -46,6 +46,14 @@ PRIOR_GAMES = 30.0
 # заметно не меняется, а лимит OpenDota экономится сильно.
 CACHE_TTL_SEC = 24 * 3600
 
+# А вот отказы залипать на сутки не должны. Человек, увидевший «история
+# закрыта», идёт эту историю открывать — и возвращается через пять минут.
+# Если держать отрицательный ответ сутки, он увидит ровно то же самое и
+# решит, что сайт сломан. Именно так и вышло с первым же живым
+# пользователем: галку в Доте он включил, данные появились, а сайт
+# продолжал показывать вчерашний отказ.
+NEGATIVE_TTL_SEC = 10 * 60
+
 # Запас по времени ответа: OpenDota на больших аккаунтах отвечает секунды.
 REQUEST_TIMEOUT_SEC = 30
 
@@ -129,7 +137,9 @@ class ProfileStore:
         ttl_sec: int = CACHE_TTL_SEC,
         match_limit: int = 20000,
         prior_games: float = PRIOR_GAMES,
+        negative_ttl_sec: int = NEGATIVE_TTL_SEC,
     ):
+        self.negative_ttl_sec = negative_ttl_sec
         self.prior_games = prior_games
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -153,7 +163,7 @@ class ProfileStore:
         None, а не блокирует запрос на секунды.
         """
         cached = self._memory.get(account_id)
-        if cached and not force and time.time() - cached[0] < self.ttl_sec:
+        if cached and not force and time.time() - cached[0] < self._ttl_for(cached[1].status):
             return cached[1]
 
         if not force:
@@ -176,6 +186,10 @@ class ProfileStore:
 
     # -------------------------------------------------------------- внутрь
 
+    def _ttl_for(self, status: str) -> float:
+        """Удачный профиль живёт сутки, отказ — минуты (см. NEGATIVE_TTL_SEC)."""
+        return self.ttl_sec if status == "ok" else self.negative_ttl_sec
+
     def _paths(self, account_id: int) -> tuple[Path, Path]:
         return (
             self.cache_dir / f"{account_id}.parquet",
@@ -190,11 +204,11 @@ class ProfileStore:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             return None
-        if time.time() - float(meta.get("fetched_at", 0)) > self.ttl_sec:
-            return None
-
         status = str(meta.get("status", "unavailable"))
         games = int(meta.get("games", 0))
+        if time.time() - float(meta.get("fetched_at", 0)) > self._ttl_for(status):
+            return None
+
         if status != "ok":
             return PlayerProfile(account_id=account_id, status=status, games=games)
 
